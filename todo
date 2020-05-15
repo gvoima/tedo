@@ -1,0 +1,210 @@
+#!/bin/bash
+
+## TODO:
+# make a config file and source it:
+#  add TODO_LIST to the source and make it change the default file when -f is given.
+#  do something about the print/printf?
+#  check for commands
+
+
+## config
+TODO_LIST=~/.todo
+#  colors
+red="\033[1;31m"
+green="\033[0;32m"
+yellow="\033[0;33m"
+white="\033[1;37m"
+gray="\033[0;90m"
+no_c="\033[0m"
+
+## help
+HELP="Usage: ${red}$0${no_c} [OPTION]
+Print a TODO list to standard output.
+
+OPTION
+  ${yellow}'foo bar'${no_c}                append the string ${yellow}'foo bar'${no_c} to end of the todo list
+  -bck                     Back up the list as ~/.todo.backup
+    --backup
+  -del [[0-9].*|all]       delete the numbered line from the todo list, or if ${yellow}'all'${no_c} is given then delete everything
+  -[d|nd] [0-9].*          marks or removes the line as ${yellow}'done'${no_c}, i.e. colors it gray or removes it
+    --done
+    --not-done
+  -[h|nh] [0-9].*          marks or removes the line as ${yellow}'highlighted'${no_c}, i.e. colors it white or removes it
+    --highlight
+    --not-highlight
+  -l                       view the list in less
+  -n                       edit the list in nano
+  --help                   display this help and exit
+
+With no OPTION, print on standard output.
+
+EXAMPLES
+  todo ${yellow}'foobar'${no_c}     Adds the string ${yellow}'foobar'${no_c} to the end of the TODO list.
+  todo -del 15      Deletes the line 15 from the todo list.
+  todo              Print the todo list content.
+  todo -d 2         Marks the line 2 as done (-h for highlight).
+  todo -nd 5        Marks the line 5 as not done, i.e. removes the done -status (-nh for highlight).
+
+Report todo bugs to bosse
+"
+
+## functions
+__initialize_first_time() {
+	# if nothing needs to be done, fail the initialization
+	local initialization_state=1
+
+	# create the list if there is none
+	if [ ! -f "$TODO_LIST" ]; then
+		echo;echo "Todo list not found, first time use? Creating one ..."
+		touch "$TODO_LIST" && echo "$TODO_LIST"
+		echo "Start by adding something to the list with; todo 'something something'.";echo
+		initialization_state=0
+	fi
+
+	return $initialization_state
+}
+__is_int() {
+	local re='^[0-9]+$'
+	if ! [[ "$1" =~ $re ]] ; then
+		echo "error: not a whole number" >&2; exit 1
+	fi
+	return 0
+}
+__is_empty() {
+	#  if the list is empty you can't delete, mark lines as done/not-done, highlight/not-highlight and print it
+	if [ $(wc -c "$TODO_LIST" | cut -f 1 -d ' ') -eq 0 ]; then
+		case "$1" in
+		"-del" | "-d" | "-nd" | "-h" | "-nh" | "")
+			echo;echo "The list is empty.";echo
+			return 0
+			;;
+		esac
+	fi
+	return 1
+}
+__add_status() {
+	if [ -n "$1" -a -n "$2" ] && __is_int "$2"; then
+		if [ -n "$3" ]; then
+			case "$3" in
+			"red")
+				;;
+			"green")
+				;;
+			esac
+		fi
+		case "$1" in
+		"DONE")
+			TMP=$(mktemp)
+			awk '{print (NR=='"$2"' ? "DONE: "$0 : $0)}' "$TODO_LIST" > "$TMP" && mv "$TMP" "$TODO_LIST"
+			;;
+		"HIGHLIGHT")
+			TMP=$(mktemp)
+			awk '{print (NR=='"$2"' ? "HIGHL: "$0 : $0)}' "$TODO_LIST" > "$TMP" && mv "$TMP" "$TODO_LIST"
+			;;
+		esac
+	else
+		echo "specify a line to be marked"
+		return 1
+	fi
+}
+__rem_status() {
+	if [ -n "$1" -a -n "$2" ] && __is_int "$2"; then
+		case "$1" in
+		"DONE")
+			TMP=$(mktemp)
+			awk '{
+			if (NR=='"$2"')
+				sub("DONE: ","");
+				print $0;
+			}' "$TODO_LIST" > "$TMP" && mv "$TMP" "$TODO_LIST"
+			;;
+		"HIGHLIGHT")
+                        TMP=$(mktemp)
+                        awk '{
+                        if (NR=='"$2"')
+                                sub("HIGHL: ","");
+                                print $0;
+                        }' "$TODO_LIST" > "$TMP" && mv "$TMP" "$TODO_LIST"
+			;;
+		esac
+	else
+		echo "specify a line to be unmarked"
+		return 1
+	fi
+}
+__delete() {
+	if [ "$1" == "all" ]; then
+		echo -n "" > $TODO_LIST
+	elif  [ -n "$1" ] && __is_int "$1"; then
+		sed -i "$1d" "$TODO_LIST"
+	else
+		echo "specify a line to be deleted or 'all' to delete the whole list"
+	fi
+}
+__print_list() {
+	echo
+	awk '{
+	if ($1=="DONE:")
+		#print "'$green'"NR".'$no_c' ""'$gray'"$0"'$no_c'";
+		printf("'${green}'%3.d.'${no_c}' '${gray}'%s'${no_c}'\n", NR, $0);
+	else if ($1=="HIGHL:")
+		#print "'$green'"NR".'$no_c' ""'$white'"$0"'$no_c'";
+		printf("'${green}'%3.d.'${no_c}' '${white}'%s'${no_c}'\n", NR, $0);
+	else
+		#print "'$green'"NR".'$no_c' ""'$yellow'"$0"'$no_c'";
+		printf("'${green}'%3.d.'${no_c}' '${yellow}'%s'${no_c}'\n", NR, $0);
+	}' "$TODO_LIST" | sed 's/DONE: //;s/HIGHL: //'
+	echo
+}
+
+
+
+## main
+
+#  set up the needed environment
+if __initialize_first_time; then exit 1; fi
+#  check if the list is empty
+if __is_empty "$1"; then exit 1; fi
+
+
+case "$1" in
+"")
+	__print_list
+	;;
+"-bck" | "--backup")
+	cp "$TODO_LIST" "$TODO_LIST.backup"
+	;;
+"-del")
+	__delete "$2"
+	;;
+"-d" | "--done")
+	__add_status DONE "$2"
+	;;
+"-nd" | "--not-done")
+	__rem_status DONE "$2"
+	;;
+"-h" | "--highlight")
+	if ! __add_status HIGHLIGHT "$2" "$3"; then
+		echo "  (check --help for help)"
+	fi
+	;;
+"-nh" | "--not-highlight")
+	__rem_status HIGHLIGHT "$2"
+	;;
+"-n")
+	nano "$TODO_LIST"
+	;;
+"-l")
+	less "$TODO_LIST"
+	;;
+"--help")
+	echo -e "$HELP"
+	;;
+*)
+	echo "$1" >> "$TODO_LIST"
+	;;
+esac
+
+# reset the terminal, just in case
+tput sgr0
+exit 0
