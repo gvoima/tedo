@@ -45,7 +45,7 @@ EXAMPLES
   todo -d 2         Marks the line 2 as done (-h for highlight).
   todo -nd 5        Marks the line 5 as not done, i.e. removes the done -status (-nh for highlight).
 
-Report todo bugs to bosse
+Report todo bugs to me, gvoima :)
 "
 
 ## functions
